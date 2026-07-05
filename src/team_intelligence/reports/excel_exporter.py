@@ -40,6 +40,9 @@ class ExcelExporter:
         if structured_reports is not None:
             self.create_daily_reports_sheet(workbook, structured_reports, report_metrics or [])
 
+        if structured_reports is not None:
+            self.create_daily_review_sheet(workbook, structured_reports, report_metrics or [])
+
         if author_daily_metrics is not None:
             self.create_daily_authors_sheet(workbook, author_daily_metrics)
 
@@ -243,6 +246,132 @@ class ExcelExporter:
                     metric.vague_items_count,
                 ]
             )
+
+        self.format_sheet(sheet)
+
+    def create_daily_review_sheet(
+        self,
+        workbook,
+        structured_reports: list[StructuredDailyReport],
+        report_metrics: list[DailyReportMetrics],
+    ):
+        """Создает лист с daily-отчетами, требующими внимания лида."""
+
+        metrics_by_key = {
+            (metric.author, metric.report_date): metric
+            for metric in report_metrics
+        }
+
+        rows = []
+
+        for report in structured_reports:
+            metric = metrics_by_key.get(
+                (
+                    report.author,
+                    report.report_date,
+                )
+            )
+
+            reasons = []
+            priority = 3
+
+            if metric is None:
+                reasons.append("Нет рассчитанных метрик")
+                priority = 1
+                quality_score = None
+                completeness_score = None
+                is_late = "Нет"
+                notes = ""
+            else:
+                quality_score = metric.quality_score
+                completeness_score = metric.completeness_score
+                is_late = "Да" if metric.is_late else "Нет"
+                notes = "; ".join(metric.notes)
+
+                if metric.quality_score < 70:
+                    reasons.append("Низкое качество отчета")
+                    priority = min(priority, 1)
+
+                if metric.completeness_score < 80:
+                    reasons.append("Низкая полнота отчета")
+                    priority = min(priority, 2)
+
+                if metric.is_late:
+                    reasons.append("Отчет опубликован позже нормы")
+                    priority = min(priority, 2)
+
+                if metric.completed_tasks_count == 0:
+                    reasons.append("Нет выполненных задач за вчера")
+                    priority = min(priority, 1)
+
+                if metric.planned_tasks_count == 0:
+                    reasons.append("Нет плана на сегодня")
+                    priority = min(priority, 1)
+
+                if metric.problems_count > 0:
+                    reasons.append("Есть проблемы или блокеры")
+                    priority = min(priority, 2)
+
+                if metric.notes:
+                    reasons.extend(metric.notes)
+
+            if not reasons:
+                continue
+
+            unique_reasons = list(dict.fromkeys(reasons))
+
+            rows.append(
+                [
+                    priority,
+                    self.excel_safe_value(report.report_date),
+                    report.author,
+                    report.role,
+                    quality_score,
+                    completeness_score,
+                    is_late,
+                    "; ".join(unique_reasons),
+                    report.raw_text,
+                    notes,
+                ]
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row[0],
+                row[4] if row[4] is not None else 999,
+                row[5] if row[5] is not None else 999,
+            )
+        )
+
+        sheet = workbook.create_sheet("Daily Review")
+
+        sheet.append(
+            [
+                "Приоритет",
+                "Дата",
+                "Автор",
+                "Роль",
+                "Качество",
+                "Полнота",
+                "Опоздал",
+                "Причина проверки",
+                "Текст отчета",
+                "Замечания",
+            ]
+        )
+
+        priority_labels = {
+            1: "Высокий",
+            2: "Средний",
+            3: "Низкий",
+        }
+
+        for row in rows:
+            row[0] = priority_labels.get(
+                row[0],
+                "Низкий",
+            )
+            sheet.append(row)
 
         self.format_sheet(sheet)
 
