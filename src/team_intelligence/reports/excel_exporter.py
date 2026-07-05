@@ -56,9 +56,49 @@ class ExcelExporter:
             self.create_daily_authors_sheet(workbook, author_daily_metrics)
 
         file_path = self.output_dir / "team_intelligence.xlsx"
+
+        self.cleanup_workbook_sheets(workbook)
+
         workbook.save(file_path)
 
         return file_path
+
+    def cleanup_workbook_sheets(self, workbook):
+        """Удаляет технические листы и выставляет управленческий порядок."""
+
+        technical_sheets = [
+            "Summary",
+            "Authors",
+            "Activity",
+            "Messages",
+        ]
+
+        for sheet_name in technical_sheets:
+            if sheet_name in workbook.sheetnames and len(workbook.sheetnames) > 1:
+                del workbook[sheet_name]
+
+        desired_order = [
+            "Сводка",
+            "Проверка отчетов",
+            "Риски по авторам",
+            "Антипаттерны",
+            "Все отчеты",
+            "Авторы по дням",
+        ]
+
+        ordered_sheets = [
+            workbook[sheet_name]
+            for sheet_name in desired_order
+            if sheet_name in workbook.sheetnames
+        ]
+
+        remaining_sheets = [
+            workbook[sheet_name]
+            for sheet_name in workbook.sheetnames
+            if sheet_name not in desired_order
+        ]
+
+        workbook._sheets = ordered_sheets + remaining_sheets
 
     def create_summary_sheet(
         self,
@@ -174,7 +214,7 @@ class ExcelExporter:
         """Создает управленческую сводку по daily-отчетам."""
 
         sheet = workbook.create_sheet(
-            "Executive Summary",
+            "Сводка",
             0,
         )
 
@@ -415,7 +455,7 @@ class ExcelExporter:
             for metric in report_metrics
         }
 
-        sheet = workbook.create_sheet("Daily Reports")
+        sheet = workbook.create_sheet("Проверка отчетов")
         sheet.append(
             [
                 "Дата",
@@ -463,7 +503,7 @@ class ExcelExporter:
     ):
         """Создает лист со сводкой по сотрудникам."""
 
-        sheet = workbook.create_sheet("Daily Authors")
+        sheet = workbook.create_sheet("Авторы по дням")
         sheet.append(
             [
                 "Автор",
@@ -610,7 +650,7 @@ class ExcelExporter:
                         "В отчете нет понятной ссылки на задачу, тикет или рабочий объект.",
                     )
 
-        sheet = workbook.create_sheet("Report Antipatterns")
+        sheet = workbook.create_sheet("04 Антипаттерны")
 
         sheet.append(
             [
@@ -811,7 +851,7 @@ class ExcelExporter:
             )
         )
 
-        sheet = workbook.create_sheet("Author Review")
+        sheet = workbook.create_sheet("Риски по авторам")
 
         sheet.append(
             [
@@ -940,7 +980,7 @@ class ExcelExporter:
             )
         )
 
-        sheet = workbook.create_sheet("Daily Review")
+        sheet = workbook.create_sheet("06 Все отчеты")
 
         sheet.append(
             [
