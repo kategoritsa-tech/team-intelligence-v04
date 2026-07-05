@@ -180,6 +180,7 @@ class ExcelExporter:
                 "Качество",
                 "Полнота",
                 "Опоздал",
+                "Текст отчета",
                 "Замечания",
             ]
         )
@@ -199,6 +200,7 @@ class ExcelExporter:
                     metric.quality_score if metric else None,
                     metric.completeness_score if metric else None,
                     "Да" if metric and metric.is_late else "Нет",
+                    report.raw_text,
                     "; ".join(metric.notes) if metric else "",
                 ]
             )

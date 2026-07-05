@@ -114,6 +114,11 @@ def main():
             ],
         )
 
+        reports_by_key = {
+            (report.author, report.report_date): report
+            for report in structured_reports
+        }
+
         daily_path = exporter.export_csv(
             "daily_metrics.csv",
             [
@@ -127,6 +132,7 @@ def main():
                 "Проблемы",
                 "Jira",
                 "Опоздал",
+                "Текст отчета",
                 "Замечания",
             ],
             [
@@ -141,6 +147,9 @@ def main():
                     metric.problems_count,
                     metric.jira_count,
                     "Да" if metric.is_late else "Нет",
+                    reports_by_key[
+                        (metric.author, metric.report_date)
+                    ].raw_text,
                     "; ".join(metric.notes),
                 ]
                 for metric in report_metrics
