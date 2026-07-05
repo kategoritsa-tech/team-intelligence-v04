@@ -41,6 +41,9 @@ class ExcelExporter:
             self.create_daily_reports_sheet(workbook, structured_reports, report_metrics or [])
 
         if structured_reports is not None:
+            self.create_executive_summary_sheet(workbook, structured_reports, report_metrics or [])
+
+        if structured_reports is not None:
             self.create_daily_review_sheet(workbook, structured_reports, report_metrics or [])
 
         if structured_reports is not None:
@@ -159,6 +162,243 @@ class ExcelExporter:
                     "Да" if message.has_media else "Нет",
                 ]
             )
+
+        self.format_sheet(sheet)
+
+    def create_executive_summary_sheet(
+        self,
+        workbook,
+        structured_reports: list[StructuredDailyReport],
+        report_metrics: list[DailyReportMetrics],
+    ):
+        """Создает управленческую сводку по daily-отчетам."""
+
+        sheet = workbook.create_sheet(
+            "Executive Summary",
+            0,
+        )
+
+        sheet.append(
+            [
+                "Блок",
+                "Метрика",
+                "Значение",
+            ]
+        )
+
+        total_reports = len(structured_reports)
+        total_authors = len(
+            {
+                report.author
+                for report in structured_reports
+            }
+        )
+
+        total_metrics = len(report_metrics)
+
+        if total_metrics > 0:
+            avg_quality = round(
+                sum(metric.quality_score for metric in report_metrics) / total_metrics,
+                1,
+            )
+
+            avg_completeness = round(
+                sum(metric.completeness_score for metric in report_metrics) / total_metrics,
+                1,
+            )
+        else:
+            avg_quality = 0
+            avg_completeness = 0
+
+        problematic_reports = 0
+        late_reports = 0
+        reports_without_completed = 0
+        reports_without_plan = 0
+        reports_with_problems = 0
+
+        antipatterns = {}
+
+        def add_antipattern(name: str):
+            antipatterns[name] = antipatterns.get(
+                name,
+                0,
+            ) + 1
+
+        for metric in report_metrics:
+            is_problematic = False
+
+            if metric.quality_score < 70:
+                is_problematic = True
+                add_antipattern("Низкое качество отчета")
+
+            if metric.completeness_score < 80:
+                is_problematic = True
+                add_antipattern("Неполный отчет")
+
+            if metric.is_late:
+                is_problematic = True
+                late_reports += 1
+                add_antipattern("Отчет после дедлайна")
+
+            if metric.completed_tasks_count == 0:
+                is_problematic = True
+                reports_without_completed += 1
+                add_antipattern("Нет выполненных задач")
+
+            if metric.planned_tasks_count == 0:
+                is_problematic = True
+                reports_without_plan += 1
+                add_antipattern("Нет плана на сегодня")
+
+            if metric.problems_count > 0:
+                is_problematic = True
+                reports_with_problems += 1
+                add_antipattern("Есть проблемы или блокеры")
+
+            if metric.notes:
+                is_problematic = True
+
+            for note in metric.notes:
+                note_lower = note.lower()
+
+                if "мало конкретики" in note_lower:
+                    add_antipattern("Мало конкретики")
+
+                if "jira" in note_lower or "джира" in note_lower:
+                    add_antipattern("Нет привязки к задаче")
+
+            if is_problematic:
+                problematic_reports += 1
+
+        metrics_by_author = {}
+
+        for metric in report_metrics:
+            metrics_by_author.setdefault(
+                metric.author,
+                [],
+            ).append(metric)
+
+        high_risk_authors = 0
+        medium_risk_authors = 0
+
+        for metrics in metrics_by_author.values():
+            reports_count = len(metrics)
+
+            if reports_count == 0:
+                continue
+
+            avg_author_quality = (
+                sum(metric.quality_score for metric in metrics) / reports_count
+            )
+
+            avg_author_completeness = (
+                sum(metric.completeness_score for metric in metrics) / reports_count
+            )
+
+            late_count = sum(
+                1 for metric in metrics
+                if metric.is_late
+            )
+
+            no_completed_count = sum(
+                1 for metric in metrics
+                if metric.completed_tasks_count == 0
+            )
+
+            no_plan_count = sum(
+                1 for metric in metrics
+                if metric.planned_tasks_count == 0
+            )
+
+            problems_count = sum(
+                1 for metric in metrics
+                if metric.problems_count > 0
+            )
+
+            notes_count = sum(
+                1 for metric in metrics
+                if metric.notes
+            )
+
+            risk_score = 0
+
+            if avg_author_quality < 60:
+                risk_score += 3
+            elif avg_author_quality < 70:
+                risk_score += 2
+
+            if avg_author_completeness < 70:
+                risk_score += 3
+            elif avg_author_completeness < 80:
+                risk_score += 2
+
+            if no_completed_count >= max(2, reports_count // 2):
+                risk_score += 3
+            elif no_completed_count > 0:
+                risk_score += 1
+
+            if no_plan_count >= max(2, reports_count // 2):
+                risk_score += 3
+            elif no_plan_count > 0:
+                risk_score += 1
+
+            if problems_count >= max(2, reports_count // 2):
+                risk_score += 2
+            elif problems_count > 0:
+                risk_score += 1
+
+            if late_count >= max(2, reports_count // 2):
+                risk_score += 2
+            elif late_count > 0:
+                risk_score += 1
+
+            if notes_count >= max(2, reports_count // 2):
+                risk_score += 2
+
+            if risk_score >= 7:
+                high_risk_authors += 1
+            elif risk_score >= 3:
+                medium_risk_authors += 1
+
+        if antipatterns:
+            top_antipattern = max(
+                antipatterns.items(),
+                key=lambda item: item[1],
+            )
+            top_antipattern_text = f"{top_antipattern[0]} ({top_antipattern[1]})"
+        else:
+            top_antipattern_text = "Не выявлено"
+
+        problematic_percent = 0
+
+        if total_metrics > 0:
+            problematic_percent = round(
+                problematic_reports / total_metrics * 100,
+                1,
+            )
+
+        rows = [
+            ["Общая статистика", "Всего отчетов", total_reports],
+            ["Общая статистика", "Всего авторов", total_authors],
+            ["Общая статистика", "Проблемных отчетов", problematic_reports],
+            ["Общая статистика", "Доля проблемных отчетов", f"{problematic_percent}%"],
+
+            ["Качество", "Среднее качество", avg_quality],
+            ["Качество", "Средняя полнота", avg_completeness],
+
+            ["Дисциплина", "Отчетов после дедлайна", late_reports],
+            ["Дисциплина", "Отчетов без выполненных задач", reports_without_completed],
+            ["Дисциплина", "Отчетов без плана", reports_without_plan],
+            ["Дисциплина", "Отчетов с проблемами/блокерами", reports_with_problems],
+
+            ["Риски", "Авторов высокого риска", high_risk_authors],
+            ["Риски", "Авторов среднего риска", medium_risk_authors],
+
+            ["Антипаттерны", "Самая частая проблема", top_antipattern_text],
+        ]
+
+        for row in rows:
+            sheet.append(row)
 
         self.format_sheet(sheet)
 
