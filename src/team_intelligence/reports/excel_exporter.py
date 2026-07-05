@@ -46,6 +46,9 @@ class ExcelExporter:
         if structured_reports is not None:
             self.create_author_review_sheet(workbook, structured_reports, report_metrics or [])
 
+        if structured_reports is not None:
+            self.create_report_antipatterns_sheet(workbook, structured_reports, report_metrics or [])
+
         if author_daily_metrics is not None:
             self.create_daily_authors_sheet(workbook, author_daily_metrics)
 
@@ -249,6 +252,158 @@ class ExcelExporter:
                     metric.vague_items_count,
                 ]
             )
+
+        self.format_sheet(sheet)
+
+    def create_report_antipatterns_sheet(
+        self,
+        workbook,
+        structured_reports: list[StructuredDailyReport],
+        report_metrics: list[DailyReportMetrics],
+    ):
+        """Создает лист с типовыми антипаттернами daily-отчетов."""
+
+        reports_by_key = {
+            (
+                report.author,
+                report.report_date,
+            ): report
+            for report in structured_reports
+        }
+
+        antipatterns = {}
+
+        def add_antipattern(
+            name: str,
+            metric: DailyReportMetrics,
+            detail: str,
+        ):
+            report = reports_by_key.get(
+                (
+                    metric.author,
+                    metric.report_date,
+                )
+            )
+
+            if name not in antipatterns:
+                antipatterns[name] = {
+                    "count": 0,
+                    "authors": set(),
+                    "details": [],
+                    "examples": [],
+                }
+
+            item = antipatterns[name]
+            item["count"] += 1
+            item["authors"].add(metric.author)
+
+            if detail and detail not in item["details"]:
+                item["details"].append(detail)
+
+            if report is not None and len(item["examples"]) < 5:
+                text = report.raw_text.strip().replace("\n", " / ")
+
+                if len(text) > 500:
+                    text = text[:500] + "..."
+
+                item["examples"].append(
+                    f"{metric.author}, {self.excel_safe_value(metric.report_date)}: {text}"
+                )
+
+        for metric in report_metrics:
+            if metric.completed_tasks_count == 0:
+                add_antipattern(
+                    "Нет выполненных задач",
+                    metric,
+                    "В отчете не указано, что было сделано за вчера.",
+                )
+
+            if metric.planned_tasks_count == 0:
+                add_antipattern(
+                    "Нет плана на сегодня",
+                    metric,
+                    "В отчете не указан план работ на сегодня.",
+                )
+
+            if metric.problems_count > 0:
+                add_antipattern(
+                    "Есть проблемы или блокеры",
+                    metric,
+                    "В отчете указаны проблемы, блокеры или ограничения.",
+                )
+
+            if metric.is_late:
+                add_antipattern(
+                    "Отчет после дедлайна",
+                    metric,
+                    "Отчет опубликован позже установленного времени.",
+                )
+
+            if metric.quality_score < 70:
+                add_antipattern(
+                    "Низкое качество отчета",
+                    metric,
+                    "Оценка качества отчета ниже 70.",
+                )
+
+            if metric.completeness_score < 80:
+                add_antipattern(
+                    "Неполный отчет",
+                    metric,
+                    "Оценка полноты отчета ниже 80.",
+                )
+
+            for note in metric.notes:
+                note_lower = note.lower()
+
+                if "мало конкретики" in note_lower:
+                    add_antipattern(
+                        "Мало конкретики",
+                        metric,
+                        "Формулировки слишком общие, сложно понять конкретный результат.",
+                    )
+
+                if "jira" in note_lower or "джира" in note_lower:
+                    add_antipattern(
+                        "Нет привязки к задаче",
+                        metric,
+                        "В отчете нет понятной ссылки на задачу, тикет или рабочий объект.",
+                    )
+
+        sheet = workbook.create_sheet("Report Antipatterns")
+
+        sheet.append(
+            [
+                "Антипаттерн",
+                "Кол-во отчетов",
+                "Кол-во авторов",
+                "Авторы",
+                "Описание",
+                "Примеры",
+            ]
+        )
+
+        rows = []
+
+        for name, data in antipatterns.items():
+            rows.append(
+                [
+                    name,
+                    data["count"],
+                    len(data["authors"]),
+                    ", ".join(sorted(data["authors"])),
+                    "; ".join(data["details"]),
+                    "\n\n".join(data["examples"]),
+                ]
+            )
+
+        rows.sort(
+            key=lambda row: row[1],
+            reverse=True,
+        )
+
+        for row in rows:
+            sheet.append(row)
 
         self.format_sheet(sheet)
 
