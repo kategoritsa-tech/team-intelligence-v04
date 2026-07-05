@@ -43,6 +43,9 @@ class ExcelExporter:
         if structured_reports is not None:
             self.create_daily_review_sheet(workbook, structured_reports, report_metrics or [])
 
+        if structured_reports is not None:
+            self.create_author_review_sheet(workbook, structured_reports, report_metrics or [])
+
         if author_daily_metrics is not None:
             self.create_daily_authors_sheet(workbook, author_daily_metrics)
 
@@ -246,6 +249,205 @@ class ExcelExporter:
                     metric.vague_items_count,
                 ]
             )
+
+        self.format_sheet(sheet)
+
+    def create_author_review_sheet(
+        self,
+        workbook,
+        structured_reports: list[StructuredDailyReport],
+        report_metrics: list[DailyReportMetrics],
+    ):
+        """Создает лист с агрегированной оценкой авторов daily-отчетов."""
+
+        reports_by_author = {}
+
+        for report in structured_reports:
+            reports_by_author.setdefault(
+                report.author,
+                [],
+            ).append(report)
+
+        metrics_by_author = {}
+
+        for metric in report_metrics:
+            metrics_by_author.setdefault(
+                metric.author,
+                [],
+            ).append(metric)
+
+        rows = []
+
+        for author, metrics in metrics_by_author.items():
+            reports = reports_by_author.get(
+                author,
+                [],
+            )
+
+            role = ""
+
+            for report in reports:
+                if report.role:
+                    role = report.role
+                    break
+
+            reports_count = len(metrics)
+
+            if reports_count == 0:
+                continue
+
+            avg_quality = round(
+                sum(metric.quality_score for metric in metrics) / reports_count,
+                1,
+            )
+
+            avg_completeness = round(
+                sum(metric.completeness_score for metric in metrics) / reports_count,
+                1,
+            )
+
+            late_count = sum(
+                1 for metric in metrics
+                if metric.is_late
+            )
+
+            no_completed_count = sum(
+                1 for metric in metrics
+                if metric.completed_tasks_count == 0
+            )
+
+            no_plan_count = sum(
+                1 for metric in metrics
+                if metric.planned_tasks_count == 0
+            )
+
+            problems_count = sum(
+                1 for metric in metrics
+                if metric.problems_count > 0
+            )
+
+            notes_count = sum(
+                1 for metric in metrics
+                if metric.notes
+            )
+
+            reasons = []
+            risk_score = 0
+
+            if avg_quality < 60:
+                reasons.append("Среднее качество ниже 60")
+                risk_score += 3
+            elif avg_quality < 70:
+                reasons.append("Среднее качество ниже 70")
+                risk_score += 2
+
+            if avg_completeness < 70:
+                reasons.append("Средняя полнота ниже 70")
+                risk_score += 3
+            elif avg_completeness < 80:
+                reasons.append("Средняя полнота ниже 80")
+                risk_score += 2
+
+            if no_completed_count >= max(2, reports_count // 2):
+                reasons.append("Часто нет выполненных задач")
+                risk_score += 3
+            elif no_completed_count > 0:
+                reasons.append("Есть отчеты без выполненных задач")
+                risk_score += 1
+
+            if no_plan_count >= max(2, reports_count // 2):
+                reasons.append("Часто нет плана")
+                risk_score += 3
+            elif no_plan_count > 0:
+                reasons.append("Есть отчеты без плана")
+                risk_score += 1
+
+            if problems_count >= max(2, reports_count // 2):
+                reasons.append("Часто есть проблемы или блокеры")
+                risk_score += 2
+            elif problems_count > 0:
+                reasons.append("Есть проблемы или блокеры")
+                risk_score += 1
+
+            if late_count >= max(2, reports_count // 2):
+                reasons.append("Часто опаздывает с отчетами")
+                risk_score += 2
+            elif late_count > 0:
+                reasons.append("Есть опоздания")
+                risk_score += 1
+
+            if notes_count >= max(2, reports_count // 2):
+                reasons.append("Много отчетов с замечаниями")
+                risk_score += 2
+
+            if risk_score >= 7:
+                risk = "Высокий"
+                priority = 1
+            elif risk_score >= 3:
+                risk = "Средний"
+                priority = 2
+            else:
+                risk = "Низкий"
+                priority = 3
+
+            rows.append(
+                [
+                    priority,
+                    author,
+                    role,
+                    reports_count,
+                    avg_quality,
+                    avg_completeness,
+                    late_count,
+                    no_completed_count,
+                    no_plan_count,
+                    problems_count,
+                    notes_count,
+                    risk,
+                    "; ".join(reasons) if reasons else "Системных проблем не выявлено",
+                ]
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row[0],
+                row[4],
+                row[5],
+            )
+        )
+
+        sheet = workbook.create_sheet("Author Review")
+
+        sheet.append(
+            [
+                "Приоритет",
+                "Автор",
+                "Роль",
+                "Отчетов",
+                "Среднее качество",
+                "Средняя полнота",
+                "Опозданий",
+                "Без выполненных задач",
+                "Без плана",
+                "С проблемами",
+                "С замечаниями",
+                "Риск",
+                "Причины",
+            ]
+        )
+
+        priority_labels = {
+            1: "Высокий",
+            2: "Средний",
+            3: "Низкий",
+        }
+
+        for row in rows:
+            row[0] = priority_labels.get(
+                row[0],
+                "Низкий",
+            )
+            sheet.append(row)
 
         self.format_sheet(sheet)
 

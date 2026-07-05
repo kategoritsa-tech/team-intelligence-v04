@@ -123,7 +123,7 @@ class DailyQualityAnalyzer:
 
         if vague_count:
             quality -= min(20, vague_count * 5)
-            notes.append(f"уклончивые формулировки: {vague_count}")
+            notes.append(f"Мало конкретики в формулировках: {vague_count}")
 
         post_time = report.first_time.time() if report.first_time else None
         is_late = bool(post_time and post_time > self.deadline)
