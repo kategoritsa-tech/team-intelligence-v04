@@ -6,45 +6,62 @@ class TextNormalizer:
 
     HEADINGS = {
         "вчера": "Вчера:",
-        "что сделал": "Вчера:",
-        "сделано": "Вчера:",
-        "done": "Вчера:",
         "сегодня": "Сегодня:",
-        "что делаю": "Сегодня:",
-        "план": "Сегодня:",
-        "планы": "Сегодня:",
-        "today": "Сегодня:",
+
         "проблемы": "Проблемы:",
         "проблема": "Проблемы:",
         "проблемы/блокеры": "Проблемы:",
         "проблемы/блоккеры": "Проблемы:",
+
         "блокеры": "Проблемы:",
+        "блокер": "Проблемы:",
         "блоккеры": "Проблемы:",
-        "blockers": "Проблемы:",
+        "блоккер": "Проблемы:",
+        "блокеры/проблемы": "Проблемы:",
+        "блоккеры/проблемы": "Проблемы:",
     }
 
     @classmethod
-    def normalize(cls, text: str) -> str:
+    def normalize(
+        cls,
+        text: str,
+    ) -> str:
         """Приводит текст к единому виду."""
 
-        result = text.strip().replace("\r\n", "\n").replace("\r", "\n")
-        result = re.sub(r"\n{3,}", "\n\n", result)
+        result = text.strip()
+        result = result.replace("\r\n", "\n")
+        result = result.replace("\r", "\n")
 
+        result = re.sub(
+            r"\n{2,}",
+            "\n",
+            result,
+        )
+
+        # Нормализуем заголовки вида:
+        # вчера:
+        # Вчера
+        # СЕГОДНЯ:
         for source, target in cls.HEADINGS.items():
             result = re.sub(
                 rf"(?im)^\s*{re.escape(source)}\s*:?\s*$",
                 target,
                 result,
             )
-            result = re.sub(
-                rf"(?im)^\s*{re.escape(source)}\s*[:—-]\s*",
-                f"{target}\n",
-                result,
-            )
-            result = re.sub(
-                rf"(?im)^\s*[-—–*•✔✓]?\s*{re.escape(source)}\s+",
-                f"{target}\n",
-                result,
-            )
+
+        # Нормализуем строки вида:
+        # вчера сделал ...
+        # сегодня занимаюсь ...
+        result = re.sub(
+            r"(?im)^\s*вчера\s+(.+)$",
+            r"Вчера:\n\1",
+            result,
+        )
+
+        result = re.sub(
+            r"(?im)^\s*сегодня\s+(.+)$",
+            r"Сегодня:\n\1",
+            result,
+        )
 
         return result
