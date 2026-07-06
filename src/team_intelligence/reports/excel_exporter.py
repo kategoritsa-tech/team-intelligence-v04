@@ -3,7 +3,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from team_intelligence.analytics.activity_analyzer import ActivityAnalyzer
@@ -1027,23 +1027,79 @@ class ExcelExporter:
         return value
 
     def format_sheet(self, sheet):
-        """Оформляет лист Excel."""
+        """Форматирует лист Excel для удобного чтения."""
 
-        for cell in sheet[1]:
-            cell.fill = self.HEADER_FILL
-            cell.font = self.HEADER_FONT
-            cell.alignment = self.HEADER_ALIGNMENT
+        header_fill = PatternFill(
+            fill_type="solid",
+            fgColor="1F4E78",
+        )
+
+        header_font = Font(
+            color="FFFFFF",
+            bold=True,
+        )
+
+        thin_border = Border(
+            left=Side(style="thin", color="D9E2F3"),
+            right=Side(style="thin", color="D9E2F3"),
+            top=Side(style="thin", color="D9E2F3"),
+            bottom=Side(style="thin", color="D9E2F3"),
+        )
 
         sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions
 
-        for column in sheet.columns:
-            max_length = max(
-                len(str(cell.value)) if cell.value else 0
-                for cell in column
+        if sheet.max_row > 1 and sheet.max_column > 1:
+            sheet.auto_filter.ref = sheet.dimensions
+
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+                wrap_text=True,
+            )
+            cell.border = thin_border
+
+        for row in sheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(
+                    vertical="top",
+                    wrap_text=True,
+                )
+                cell.border = thin_border
+
+        for column_cells in sheet.columns:
+            column_letter = column_cells[0].column_letter
+            max_length = 0
+
+            for cell in column_cells:
+                if cell.value is None:
+                    continue
+
+                value_length = len(str(cell.value))
+
+                if value_length > max_length:
+                    max_length = value_length
+
+            width = min(
+                max(max_length + 2, 12),
+                60,
             )
 
-            sheet.column_dimensions[get_column_letter(column[0].column)].width = min(
-                max_length + 3,
-                80,
-            )
+            sheet.column_dimensions[column_letter].width = width
+
+        text_columns = [
+            "Текст отчета",
+            "Замечания",
+            "Причина проверки",
+            "Причины",
+            "Описание",
+            "Примеры",
+        ]
+
+        for cell in sheet[1]:
+            if cell.value in text_columns:
+                sheet.column_dimensions[cell.column_letter].width = 60
+
+        sheet.row_dimensions[1].height = 24
