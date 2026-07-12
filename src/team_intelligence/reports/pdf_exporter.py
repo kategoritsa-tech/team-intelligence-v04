@@ -9,6 +9,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from team_intelligence.daily.missed_report_analyzer import MissedReportAnalyzer
+
 
 class PdfExporter:
     """Экспорт аналитики в PDF."""
@@ -54,6 +56,11 @@ class PdfExporter:
 
         metrics = report_metrics or []
         author_metrics = author_daily_metrics or []
+
+        missed_analyzer = MissedReportAnalyzer(metrics)
+        missed_reports = missed_analyzer.missed_reports()
+        missed_authors = missed_analyzer.authors_with_missed_reports()
+        missed_count_by_author = missed_analyzer.missed_count_by_author()
 
         file_path = self.output_dir / "team_intelligence.pdf"
 
@@ -145,7 +152,7 @@ class PdfExporter:
                 if "мало конкретики" in note_lower:
                     reasons.append("мало конкретики")
 
-                if "jira" in note_lower or "джира" in note_lower:
+                if "нет привязки" in note_lower or "jira" in note_lower or "джира" in note_lower:
                     reasons.append("нет привязки к задаче")
 
             return list(dict.fromkeys(reasons))
@@ -183,6 +190,8 @@ class PdfExporter:
             ["Средняя полнота", avg_completeness],
             ["Проблемных отчетов", len(problematic_metrics)],
             ["Доля проблемных отчетов", f"{problematic_percent}%"],
+            ["Пропущенных отчетов", len(missed_reports)],
+            ["Авторов с пропусками", len(missed_authors)],
         ]
 
         story.append(self.make_table(summary_rows))
@@ -201,6 +210,8 @@ class PdfExporter:
             ["Отчетов без выполненных задач", reports_without_completed],
             ["Отчетов без плана", reports_without_plan],
             ["Отчетов с проблемами/блокерами", reports_with_problems],
+            ["Пропущенных отчетов", len(missed_reports)],
+            ["Авторов с пропусками", len(missed_authors)],
         ]
 
         story.append(self.make_table(risk_rows))
@@ -256,7 +267,15 @@ class PdfExporter:
         )
 
         author_rows = [
-            ["Автор", "Отчетов", "Качество", "Полнота", "Опозданий", "Риск"],
+            [
+                "Автор",
+                "Отчетов",
+                "Пропусков",
+                "Качество",
+                "Полнота",
+                "Опозданий",
+                "Риск",
+            ],
         ]
 
         metrics_by_author = {}
@@ -310,6 +329,11 @@ class PdfExporter:
                 if metric.notes
             )
 
+            missed_count = missed_count_by_author.get(
+                author,
+                0,
+            )
+
             risk_score = 0
 
             if avg_author_quality < 60:
@@ -342,6 +366,11 @@ class PdfExporter:
             elif late_count > 0:
                 risk_score += 1
 
+            if missed_count >= 3:
+                risk_score += 3
+            elif missed_count > 0:
+                risk_score += 2
+
             if notes_count >= max(2, reports_count // 2):
                 risk_score += 2
 
@@ -357,6 +386,7 @@ class PdfExporter:
                     risk_score,
                     author,
                     reports_count,
+                    missed_count,
                     avg_author_quality,
                     avg_author_completeness,
                     late_count,
@@ -380,6 +410,7 @@ class PdfExporter:
                     [
                         metric.author,
                         metric.reports_count,
+                        0,
                         metric.average_quality,
                         metric.average_completeness,
                         metric.late_reports,
@@ -430,8 +461,11 @@ class PdfExporter:
                 if "мало конкретики" in note_lower:
                     add_antipattern("Мало конкретики")
 
-                if "jira" in note_lower or "джира" in note_lower:
+                if "нет привязки" in note_lower or "jira" in note_lower or "джира" in note_lower:
                     add_antipattern("Нет привязки к задаче")
+
+        if missed_reports:
+            add_antipattern("Пропущенные daily-отчеты")
 
         antipattern_rows = [
             ["Антипаттерн", "Кол-во отчетов"],
@@ -498,6 +532,14 @@ class PdfExporter:
                 [
                     "В отчетах встречаются проблемы и блокеры",
                     "Разобрать повторяющиеся блокеры отдельно с лидами направлений.",
+                ]
+            )
+
+        if missed_reports:
+            conclusions.append(
+                [
+                    "Есть пропущенные daily-отчеты",
+                    "Проверить регулярность отчетности по авторам с пропусками.",
                 ]
             )
 
