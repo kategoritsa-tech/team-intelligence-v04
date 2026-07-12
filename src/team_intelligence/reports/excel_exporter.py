@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 
 from team_intelligence.analytics.activity_analyzer import ActivityAnalyzer
 from team_intelligence.daily.models import AuthorDailyMetrics, DailyReportMetrics, StructuredDailyReport
+from datetime import timedelta
 
 
 class ExcelExporter:
@@ -50,6 +51,9 @@ class ExcelExporter:
             self.create_author_review_sheet(workbook, structured_reports, report_metrics or [])
 
         if structured_reports is not None:
+            self.create_missed_reports_sheet(workbook, structured_reports)
+
+        if structured_reports is not None:
             self.create_report_antipatterns_sheet(workbook, structured_reports, report_metrics or [])
 
         if author_daily_metrics is not None:
@@ -80,6 +84,7 @@ class ExcelExporter:
         desired_order = [
             "Сводка",
             "Проверка отчетов",
+            "Пропуски отчетов",
             "Риски по авторам",
             "Антипаттерны",
             "Все отчеты",
@@ -680,6 +685,97 @@ class ExcelExporter:
         rows.sort(
             key=lambda row: row[1],
             reverse=True,
+        )
+
+        for row in rows:
+            sheet.append(row)
+
+        self.format_sheet(sheet)
+
+    def create_missed_reports_sheet(
+        self,
+        workbook,
+        structured_reports: list[StructuredDailyReport],
+    ):
+        """Создает лист с пропущенными daily-отчетами."""
+
+        sheet = workbook.create_sheet("Пропуски отчетов")
+
+        sheet.append(
+            [
+                "Дата",
+                "Автор",
+                "Статус",
+                "Комментарий",
+            ]
+        )
+
+        if not structured_reports:
+            self.format_sheet(sheet)
+            return
+
+        reports_by_author = {}
+
+        for report in structured_reports:
+            reports_by_author.setdefault(
+                report.author,
+                set(),
+            ).add(report.report_date)
+
+        all_dates = sorted(
+            {
+                report.report_date
+                for report in structured_reports
+                if report.report_date is not None
+            }
+        )
+
+        if not all_dates:
+            self.format_sheet(sheet)
+            return
+
+        start_date = all_dates[0]
+        end_date = all_dates[-1]
+
+        workdays = []
+        current_date = start_date
+
+        while current_date <= end_date:
+            if current_date.weekday() < 5:
+                workdays.append(current_date)
+
+            current_date += timedelta(days=1)
+
+        rows = []
+
+        for author, report_dates in sorted(reports_by_author.items()):
+            if not report_dates:
+                continue
+
+            first_author_date = min(report_dates)
+            last_author_date = max(report_dates)
+
+            for workday in workdays:
+                if workday < first_author_date or workday > last_author_date:
+                    continue
+
+                if workday in report_dates:
+                    continue
+
+                rows.append(
+                    [
+                        self.excel_safe_value(workday),
+                        author,
+                        "Нет отчета",
+                        "Автор писал отчеты в другие дни, но за эту дату отчет не найден",
+                    ]
+                )
+
+        rows.sort(
+            key=lambda row: (
+                row[0],
+                row[1],
+            )
         )
 
         for row in rows:
